@@ -9,11 +9,17 @@ import signal
 import btle
 
 state = "[x]"
+ble_conn = None
+sub_thread = None
+ble_mac = None
+last_argv = None
+do_exit = False
 
 def rprint(*log):
     print(state, "--->", "".join(log))
 
 class MyDelegate(btle.DefaultDelegate):
+
     def __init__(self, conn):
         btle.DefaultDelegate.__init__(self)
         self.conn = conn
@@ -33,17 +39,17 @@ class MyDelegate(btle.DefaultDelegate):
 
 
 class async_thread(threading.Thread):
+
     def __init__(self, conn):
         threading.Thread.__init__(self)
         self.conn = conn
         self.exit = False
         self.op = None
+        self.argv = None
 
     def run(self):
-
         while not self.exit:
             try:
-                #self.conn.waitForNotifications(1.0) 
                
                 if self.op == "primary":
                     print("-------------------------------------------------")
@@ -67,6 +73,42 @@ class async_thread(threading.Thread):
 
                     self.op = None
                     print("-------------------------------------------------")
+
+                elif self.op == "timesend":
+
+                    argv = self.argv
+                    send_count = 0
+                    recevice_count = 0
+                    timeout_count = 0
+
+                    handle = int(argv[1], 16)
+                    val = argv[2]
+
+                    delay = 0 
+                    if len(argv) >= 4:
+                        delay = float(argv[3])
+                    
+                    wait_ack = 0
+                    if len(argv) >= 5:
+                        wait_ack = int(argv[4])
+
+                   
+                    while self.op == "timesend":
+
+                        snd_content_str = binascii.a2b_hex(val).decode('utf-8')
+                        ble_conn.writeCharacteristic(handle, snd_content_str, True)
+                        send_count += 1
+                        rprint("Send  msg count %d" % send_count)
+
+                        if wait_ack == 1:
+                            if self.conn.waitForNotifications(1.0):
+                                recevice_count += 1
+                                rprint("recevice msg count %d" % recevice_count)
+                            else:
+                                timeout_count += 1
+                                rprint("Msg Timeout count %d" % timeout_count)
+                        time.sleep(delay) 
+
                 else:
                     pass
 
@@ -77,13 +119,7 @@ class async_thread(threading.Thread):
         rprint("sub Thread exit");
 
 
-
-ble_conn = None
-sub_thread = None
-ble_mac = None
-
 def ble_connect(devAddr):
-
     global ble_conn
     global sub_thread 
     global ble_op
@@ -100,10 +136,10 @@ def ble_connect(devAddr):
 
 
 def ble_disconnect():
-
     global ble_conn
     global sub_thread
     global state
+
     if not sub_thread is None:
         sub_thread.exit = True
         sub_thread = None
@@ -113,11 +149,17 @@ def ble_disconnect():
 
 
 def process_cmd(argv):
-
     global ble_mac 
     global ble_conn
+    global last_argv
+
     if not argv:
         return None
+    
+    if last_argv and argv[0] == '.':
+        argv = last_argv
+    else:
+        last_argv = argv
 
     op = argv[0]
     try:
@@ -169,16 +211,16 @@ def process_cmd(argv):
                 return None 
             else: 
 
-                if op == 'p':
+                if op == 'pc':
                     sub_thread.op = "primary"
                     rprint("DSV")
 
                 elif op == 'l':
                     if len(argv) >= 2:
-                        handler = int(argv[1], 16) + 1
+                        handle = int(argv[1], 16) + 1
                         snd_content_str = """\x01\x00"""
-                        ble_conn.writeCharacteristic(handler, snd_content_str)
-                        rprint("Set listening 0x%04x" % handler)
+                        ble_conn.writeCharacteristic(handle, snd_content_str)
+                        rprint("Set listening 0x%04x" % handle)
 
                 elif op == 'log':
                     snd_content_str = """\x33\x31"""
@@ -186,9 +228,8 @@ def process_cmd(argv):
                     rprint("Special send 1 : log")
 
                 elif op == 'w':
-                     
                     handle = 0x0023
-                    if len(argv) >= 3:
+                    if len(argv) >= 2:
                         handle = int(argv[1], 16)
                     
                     val = "22040201020304"
@@ -196,9 +237,42 @@ def process_cmd(argv):
                         val = argv[2]
  
                     snd_content_str = binascii.a2b_hex(val).decode('utf-8')
-                    for i in range(0, 5):
+                    ble_conn.writeCharacteristic(handle, snd_content_str, True)
+                    rprint("Send handler 0x%04x data %s" % (handle, val))
+
+                elif op == 'wc':
+                    handle = 0x0023
+                    if len(argv) >= 2:
+                        handle = int(argv[1], 16)
+                    
+                    val = "22040201020304"
+                    if len(argv) >= 3:
+                        val = argv[2]
+                    
+                    send_time = 1
+                    if len(argv) >= 4:
+                        send_time = int(argv[3], 10)
+                    
+                    delay = 0 
+                    if len(argv) >= 5:
+                        delay = float(argv[4])
+
+                    snd_content_str = binascii.a2b_hex(val).decode('utf-8')
+                    for i in range(0, send_time):
                         rprint("Send count %d" % i)
                         ble_conn.writeCharacteristic(handle, snd_content_str, True)
+                        time.sleep(delay) 
+
+                elif op == "ts":
+                    if len(argv) < 3:
+                        return True
+
+                    sub_thread.op = "timesend"
+                    sub_thread.argv = argv 
+
+                elif op == "tss":
+                    sub_thread.op = None
+                    sub_thread.argv = None 
 
                 else:
                     print("command error")
@@ -207,39 +281,70 @@ def process_cmd(argv):
 
     return True
 
+
 def usage_help():
     print("""   ********************************************************************
-        s [time] [mac]      : adv scan 
-        c [mac]             : connect
-        d                   : disconnect
-        p                   : show primary and characeristic
-        l [handle]          : listening -- l 0023
-        log                 : Special op 1
-        w [handle] [data]   : write data to characeristic with handle   
-        q                   : quit
+        s [time] [mac]                                  : Adv scan 
+        c [mac]                                         : Connect
+        d                                               : disconnect
+        pc                                              : Show primary and characeristic
+        l [handle]                                      : Listening -- l 0023
+        log                                             : Special op 1
+        w [handle] [data]                               : Write data to characeristic with handle 
+        wc [handle] [data] [count] [delay]              : Write data with set count  
+        ts [handle] [data] [delay] [ack]                : Test, send data loop  
+        tss                                             : stop tc  
+        .                                               : Repeat
+        q                                               : Quit
     *************************************************************************************************************
           """)
 
-do_exit = False
+
 def signal_handler(signal, frame):
     global do_exit
     try:
         do_exit = True
+        ble_disconnect()
     except:
         pass
 
-if __name__ == '__main__':
 
-    btle.Debugging = True
-
+def test():
+    global ble_mac
+    # test
     ble_mac = "76:66:44:33:22:72"
     ble_connect(ble_mac)
 
-    while True:
-        cmd = raw_input()
+    # listenning
+    handler = 0x24
+    snd_content_str = """\x01\x00"""
+    ble_conn.writeCharacteristic(handler, snd_content_str)
+
+    # open device uart log
+    snd_content_str = """\x33\x31"""
+    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+    rprint("Test : listenning and open log")
+
+
+
+if __name__ == '__main__':
+    
+    rprint("Application Startt\n")
+ 
+    #btle.Debugging = True
+    test()
+
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while True and (not do_exit):
+        cmd = raw_input("%s cmd $ " % state)
         argv = cmd.split()
         if process_cmd(argv) == False:
             break
 
-   # signal.signal(signal.SIGINT, signal_handler)
+
+    rprint("Application quit\n")
+
+
 
