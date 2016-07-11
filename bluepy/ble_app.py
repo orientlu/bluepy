@@ -7,6 +7,8 @@ import binascii
 import threading
 import signal
 import btle
+from tqdm import tqdm
+import watchOTA
 
 state = "[x]"
 ble_conn = None
@@ -74,7 +76,7 @@ class async_thread(threading.Thread):
                     self.op = None
                     print("-------------------------------------------------")
 
-                elif self.op == "timesend":
+                elif self.op == "sendloop":
 
                     argv = self.argv
                     send_count = 0
@@ -93,22 +95,20 @@ class async_thread(threading.Thread):
                         wait_ack = int(argv[4])
 
                    
-                    while self.op == "timesend":
+                    while self.op == "sendloop":
 
-                        snd_content_str = binascii.a2b_hex(val).decode('utf-8')
-                        ble_conn.writeCharacteristic(handle, snd_content_str, True)
+                        ble_conn.writeCharacteristicRaw(handle, val, True)
                         send_count += 1
                         rprint("Send  msg count %d" % send_count)
 
                         if wait_ack == 1:
-                            if self.conn.waitForNotifications(1.0):
+                            if self.conn.waitForNotifications(6.0):
                                 recevice_count += 1
                                 rprint("recevice msg count %d" % recevice_count)
                             else:
                                 timeout_count += 1
                                 rprint("Msg Timeout count %d" % timeout_count)
                         time.sleep(delay) 
-
                 else:
                     pass
 
@@ -162,122 +162,141 @@ def process_cmd(argv):
         last_argv = argv
 
     op = argv[0]
-    try:
-        if op == 's':
-            scanner = btle.Scanner().withDelegate(MyDelegate(None))
-            
-            timeout = 10.0
+    #try:
+    if op == 's':
+        scanner = btle.Scanner().withDelegate(MyDelegate(None))
+        
+        timeout = 10.0
+        if len(argv) >= 2:
+            timeout = int(argv[1])
+        devices = scanner.scan(timeout)
+
+        rprint("---------------------------------------------------------\n------> Device:", ble_mac)
+        if len(argv) >= 3 or ble_mac != None:
+
+            if len(argv) >= 3:
+                ble_mac = argv[2]
+
+            for dev in devices:
+                if dev.addr == ble_mac:
+                    print("\nDiscovery:", "MAC:", dev.addr, " Rssi ", str(dev.rssi))
+
+                    for (adtype, desc, value) in dev.getScanData():
+                        rprint ("  %s(0x%x) = %s" % (desc, int(adtype), value))
+
+                    break
+        rprint("---------------------------------------------------------\n Scan End") 
+
+    elif op == "c":
+        if len(argv) >= 2 or ble_mac != None:
             if len(argv) >= 2:
-                timeout = int(argv[1])
-            devices = scanner.scan(timeout)
+                ble_mac = argv[1]
 
-            rprint("---------------------------------------------------------\n------> Device:")
-            if len(argv) >= 3 or ble_mac != None:
-
-                if len(argv) >= 3:
-                    ble_mac = argv[2]
-
-                for dev in devices:
-                    if dev.addr == ble_mac:
-                        print("\nDiscovery:", "MAC:", dev.addr, " Rssi ", str(dev.rssi))
-
-                        for (adtype, desc, value) in dev.getScanData():
-                            rprint ("  %s(0x%x) = %s" % (desc, int(adtype), value))
-
-                        break
-            rprint("---------------------------------------------------------\n Scan End") 
-
-        elif op == "c":
-            if len(argv) >= 2 or ble_mac != None:
-                if len(argv) >= 2:
-                    ble_mac = argv[1]
-
-                ble_connect(ble_mac)
-
-            else:
-                rprint("use : c devAddr")
-
-        elif op == "d":
-            ble_disconnect()
-        elif op == "q":
-            ble_disconnect()
-            return False
-        elif op == "h":
-            usage_help()
+            ble_connect(ble_mac)
 
         else:
-            if ble_conn is None:
-                rprint("connect first")
-                return None 
-            else: 
+            rprint("use : c devAddr")
 
-                if op == 'pc':
-                    sub_thread.op = "primary"
-                    rprint("DSV")
+    elif op == "d":
+        ble_disconnect()
+    elif op == "q":
+        ble_disconnect()
+        return False
+    elif op == "h":
+        usage_help()
 
-                elif op == 'l':
-                    if len(argv) >= 2:
-                        handle = int(argv[1], 16) + 1
-                        snd_content_str = """\x01\x00"""
-                        ble_conn.writeCharacteristic(handle, snd_content_str)
-                        rprint("Set listening 0x%04x" % handle)
+    else:
+        if ble_conn is None:
+            rprint("connect first")
+            return None 
+        else: 
 
-                elif op == 'log':
-                    snd_content_str = """\x33\x31"""
-                    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
-                    rprint("Special send 1 : log")
+            if op == 'pc':
+                sub_thread.op = "primary"
+                rprint("DSV")
 
-                elif op == 'w':
-                    handle = 0x0023
-                    if len(argv) >= 2:
-                        handle = int(argv[1], 16)
-                    
-                    val = "22040201020304"
-                    if len(argv) >= 3:
-                        val = argv[2]
- 
-                    snd_content_str = binascii.a2b_hex(val).decode('utf-8')
-                    ble_conn.writeCharacteristic(handle, snd_content_str, True)
-                    rprint("Send handler 0x%04x data %s" % (handle, val))
+            elif op == 'l':
+                if len(argv) >= 2:
+                    handle = int(argv[1], 16) + 1
+                    snd_content_str = """\x01\x00"""
+                    ble_conn.writeCharacteristic(handle, snd_content_str)
+                    rprint("Set listening 0x%04x" % handle)
 
-                elif op == 'wc':
-                    handle = 0x0023
-                    if len(argv) >= 2:
-                        handle = int(argv[1], 16)
-                    
-                    val = "22040201020304"
-                    if len(argv) >= 3:
-                        val = argv[2]
-                    
-                    send_time = 1
-                    if len(argv) >= 4:
-                        send_time = int(argv[3], 10)
-                    
-                    delay = 0 
-                    if len(argv) >= 5:
-                        delay = float(argv[4])
+            elif op == 'log':
+                snd_content_str = """\x33\x31"""
+                ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+                rprint("Special send 1 : log")
 
-                    snd_content_str = binascii.a2b_hex(val).decode('utf-8')
-                    for i in range(0, send_time):
-                        rprint("Send count %d" % i)
-                        ble_conn.writeCharacteristic(handle, snd_content_str, True)
-                        time.sleep(delay) 
 
-                elif op == "ts":
-                    if len(argv) < 3:
-                        return True
+            elif op == 'w':
+                handle = 0x0023
+                if len(argv) >= 2:
+                    handle = int(argv[1], 16)
+                
+                val = "22040201020304"
+                if len(argv) >= 3:
+                    val = argv[2]
 
-                    sub_thread.op = "timesend"
-                    sub_thread.argv = argv 
+                ble_conn.writeCharacteristicRaw(handle, val, True)
+                rprint("Send handler 0x%04x data %s" % (handle, val))
 
-                elif op == "tss":
-                    sub_thread.op = None
-                    sub_thread.argv = None 
+                if len(argv) >= 4:
+                    if argv[3] == "1":
+                        ble_conn.waitForNotifications(2.0)
 
-                else:
-                    print("command error")
-    except:
-        pass
+            elif op == 'wc':
+                handle = 0x0023
+                if len(argv) >= 2:
+                    handle = int(argv[1], 16)
+                
+                val = "22040201020304"
+                if len(argv) >= 3:
+                    val = argv[2]
+                
+                send_time = 1
+                if len(argv) >= 4:
+                    send_time = int(argv[3], 10)
+                
+                delay = 0 
+                if len(argv) >= 5:
+                    delay = float(argv[4])
+
+                for i in range(0, send_time):
+                    rprint("Send count %d" % i)
+                    ble_conn.writeCharacteristicRaw(handle, val, True)
+                    time.sleep(delay) 
+
+            elif op == "ts":
+                if len(argv) < 3:
+                    return True
+
+                sub_thread.op = "sendloop"
+                sub_thread.argv = argv 
+
+            elif op == "tss":
+                sub_thread.op = None
+                sub_thread.argv = None
+
+            elif op == "ota":
+
+                binfile = "./1.bin"
+                if len(argv) >= 2:
+                    binfile = argv[1]
+
+                fwlist, totalindex, checksum = watchOTA.watch_ota(binfile)
+
+                if fwlist != None:
+                    for i in tqdm(range(0, totalindex)):
+                        fw = fwlist[i]
+                        ble_conn.writeCharacteristicRaw(0x23, fw, True) 
+                        if ble_conn.waitForNotifications(0.01):
+			    print("??")
+
+            else:
+                print("command error")
+
+    #except:
+    #    pass
 
     return True
 
@@ -290,7 +309,7 @@ def usage_help():
         pc                                              : Show primary and characeristic
         l [handle]                                      : Listening -- l 0023
         log                                             : Special op 1
-        w [handle] [data]                               : Write data to characeristic with handle 
+        w [handle] [data] [ack]                         : Write data to characeristic with handle 
         wc [handle] [data] [count] [delay]              : Write data with set count  
         ts [handle] [data] [delay] [ack]                : Test, send data loop  
         tss                                             : stop tc  
@@ -311,19 +330,32 @@ def signal_handler(signal, frame):
 
 def test():
     global ble_mac
+    global ble_conn
+    global sub_thread 
     # test
-    ble_mac = "76:66:44:33:22:72"
+    ble_mac = "22:04:04:02:01:00"
     ble_connect(ble_mac)
 
-    # listenning
-    handler = 0x24
-    snd_content_str = """\x01\x00"""
-    ble_conn.writeCharacteristic(handler, snd_content_str)
-
-    # open device uart log
+   # open device uart log
     snd_content_str = """\x33\x31"""
     ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
     rprint("Test : listenning and open log")
+
+   # listenning
+    handle = 0x23
+    snd_content_str = """\x01\x00"""
+    ble_conn.writeCharacteristic((handle+1), snd_content_str)
+   
+    #sub_thread.op = "sendloop"
+    #sub_thread.argv = {'ts', '23', '2204020B010300', '1', '1'}
+
+    #time.sleep(1)
+   # val = "22040201020304"
+   # snd_content_str = binascii.a2b_hex(val).decode('utf-8')
+   # ble_conn.writeCharacteristic(handle, snd_content_str, True)
+   # rprint("Send handler 0x%04x data %s" % (handle, val))
+
+   # ble_disconnect() 
 
 
 
@@ -333,7 +365,6 @@ if __name__ == '__main__':
  
     #btle.Debugging = True
     test()
-
 
     signal.signal(signal.SIGINT, signal_handler)
 
