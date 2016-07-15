@@ -10,6 +10,7 @@ import subprocess
 import binascii
 import select
 import struct
+import threading
 
 Debugging = False
 script_path = os.path.join(os.path.abspath(os.path.dirname(__file__)))
@@ -306,11 +307,14 @@ class BluepyHelper:
 
 
 class Peripheral(BluepyHelper):
+
     def __init__(self, deviceAddr=None, addrType=ADDR_TYPE_PUBLIC, iface=None):
         BluepyHelper.__init__(self)
         self.services = {} # Indexed by UUID
         self.discoveredAllServices = False
         (self.addr, self.addrType, self.iface) = (None, None, None)
+
+        self.lock = threading.Lock()
 
         if isinstance(deviceAddr, ScanEntry):
             self.connect(deviceAddr.addr, deviceAddr.addrType, deviceAddr.iface)
@@ -377,8 +381,10 @@ class Peripheral(BluepyHelper):
         self._stopHelper()
 
     def discoverServices(self):
+        self.lock.acquire()
         self._writeCmd("svcs\n")
         rsp = self._getResp('find')
+        self.lock.release()
         starts = rsp['hstart']
         ends   = rsp['hend']
         uuids  = rsp['uuid']
@@ -399,8 +405,10 @@ class Peripheral(BluepyHelper):
         uuid = UUID(uuidVal)
         if uuid in self.services:
             return self.services[uuid]
+        self.lock.acquire()
         self._writeCmd("svcs %s\n" % uuid)
         rsp = self._getResp('find')
+        self.lock.release()
         if 'hstart' not in rsp:
             raise BTLEException(BTLEException.GATT_ERROR, "Service %s not found" % (uuid.getCommonName()))
         svc = Service(self, uuid, rsp['hstart'][0], rsp['hend'][0])
@@ -409,15 +417,20 @@ class Peripheral(BluepyHelper):
 
     def _getIncludedServices(self, startHnd=1, endHnd=0xFFFF):
         # TODO: No working example of this yet
+        self.lock.acquire()
         self._writeCmd("incl %X %X\n" % (startHnd, endHnd))
-        return self._getResp('find')
+        ret = self._getResp('find')
+        self.lock.release()
+        return ret 
 
     def getCharacteristics(self, startHnd=1, endHnd=0xFFFF, uuid=None):
         cmd = 'char %X %X' % (startHnd, endHnd)
         if uuid:
             cmd += ' %s' % UUID(uuid)
+        self.lock.acquire()
         self._writeCmd(cmd + "\n")
         rsp = self._getResp('find')
+        self.lock.release()
         nChars = len(rsp['hnd'])
         return [Characteristic(self, rsp['uuid'][i], rsp['hnd'][i],
                                rsp['props'][i], rsp['vhnd'][i])
@@ -425,6 +438,7 @@ class Peripheral(BluepyHelper):
 
     def getDescriptors(self, startHnd=1, endHnd=0xFFFF):
         descriptors = []
+        self.lock.acquire()
         self._writeCmd("desc %X %X\n" % (startHnd, endHnd) )
         # Certain Bluetooth LE devices are not capable of sending back all
         # descriptors in one packet due to the limited size of MTU. So the
@@ -439,46 +453,66 @@ class Peripheral(BluepyHelper):
             resp = self._getResp('desc')
             nDesc = len(resp['hnd'])
             descriptors += [Descriptor(self, resp['uuid'][i], resp['hnd'][i]) for i in range(nDesc)]
+        self.lock.release()
         return descriptors
 
     def readCharacteristic(self, handle):
+        self.lock.acquire()
         self._writeCmd("rd %X\n" % handle)
         resp = self._getResp('rd')
+        self.lock.release()
         return resp['d'][0]
 
     def _readCharacteristicByUUID(self, uuid, startHnd, endHnd):
         # Not used at present
+        self.lock.acquire()
         self._writeCmd("rdu %s %X %X\n" % (UUID(uuid), startHnd, endHnd))
-        return self._getResp('rd')
+        ret = self._getResp('rd')
+        self.lock.release()
+        return ret 
 
     def writeCharacteristic(self, handle, val, withResponse=False):
         # Without response, a value too long for one packet will be truncated,
         # but with response, it will be sent as a queued write
         cmd = "wrr" if withResponse else "wr"
+        self.lock.acquire()
         self._writeCmd("%s %X %s\n" % (cmd, handle, binascii.b2a_hex(val).decode('utf-8')))
-        return self._getResp('wr')
+        ret = self._getResp('wr')
+        self.lock.release()
+        return ret 
 
     def writeCharacteristicRaw(self, handle, val, withResponse=False):
         # Without response, a value too long for one packet will be truncated,
         # but with response, it will be sent as a queued write
         cmd = "wrr" if withResponse else "wr"
+        self.lock.acquire()
         self._writeCmd("%s %X %s\n" % (cmd, handle, val))
-        return self._getResp('wr')
+        ret = self._getResp('wr')
+        self.lock.release()
+        return ret 
 
     def setSecurityLevel(self, level):
+        self.lock.acquire()
         self._writeCmd("secu %s\n" % level)
-        return self._getResp('stat')
+        ret = self._getResp('stat')
+        self.lock.release()
+        return ret 
 
     def unpair(self, address):
         self._mgmtCmd("unpair %s" % (address))
 
     def setMTU(self, mtu):
+        self.lock.acquire()
         self._writeCmd("mtu %x\n" % mtu)
-        return self._getResp('stat')
+        ret = self._getResp('stat')
+        self.lock.release()
+        return ret 
 
     def waitForNotifications(self, timeout):
-         resp = self._getResp(['ntfy','ind'], timeout)
-         return (resp != None)
+        self.lock.acquire()
+        resp = self._getResp(['ntfy','ind'], timeout)
+        self.lock.release()
+        return (resp != None)
 
     def __del__(self):
         self.disconnect()

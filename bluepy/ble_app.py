@@ -7,7 +7,6 @@ import binascii
 import threading
 import signal
 import btle
-from tqdm import tqdm
 import watchOTA
 
 state = "[x]"
@@ -16,6 +15,12 @@ sub_thread = None
 ble_mac = None
 last_argv = None
 do_exit = False
+
+ota_start_ack = False
+ota_send_index = 0
+ota_old_version = 0
+ota_old_typeIndex = 1
+
 
 def rprint(*log):
     print(state, "--->", "".join(log))
@@ -29,7 +34,15 @@ class MyDelegate(btle.DefaultDelegate):
     def handleNotification(self, cHandle, data):
         data = binascii.b2a_hex(data)
         rprint("Notification:", str(cHandle), " data ", data)
-	
+        msg_len = int(data[2:4], 16)
+        msg_type = int(data[6:8], 16)
+        msg_sub_type = int(data[8:10], 16)
+
+        # OTA
+        if msg_type == 0x1E:
+            if msg_sub_type == 0X01:
+                print("Get watch version 0x%08X FW TypeIndex 0x%08X" % (int(data[10:18], 16), int(data[18:26], 16)))
+
     def handleDiscovery(self, dev, isNewDev, isNewData):
         if isNewDev:
             pass
@@ -97,7 +110,7 @@ class async_thread(threading.Thread):
                    
                     while self.op == "sendloop":
 
-                        ble_conn.writeCharacteristicRaw(handle, val, True)
+                        self.conn.writeCharacteristicRaw(handle, val, True)
                         send_count += 1
                         rprint("Send  msg count %d" % send_count)
 
@@ -110,7 +123,7 @@ class async_thread(threading.Thread):
                                 rprint("Msg Timeout count %d" % timeout_count)
                         time.sleep(delay) 
                 else:
-                    pass
+                    self.conn.waitForNotifications(0.1)
 
             except:
                 break
@@ -139,6 +152,10 @@ def ble_disconnect():
     global ble_conn
     global sub_thread
     global state
+    global ota_start_ack
+    global ota_send_index
+    global ota_old_version
+    global ota_old_typeIndex 
 
     if not sub_thread is None:
         sub_thread.exit = True
@@ -279,18 +296,47 @@ def process_cmd(argv):
 
             elif op == "ota":
 
-                binfile = "./1.bin"
-                if len(argv) >= 2:
+                if len(argv) >= 3:
                     binfile = argv[1]
+                    binVersion = int(argv[2])
+                    binType = 1
+                    
+                    # get device fw version and type
+                    val = "2203020E010F"
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    if not ble_conn.waitForNotifications(10):
+                        return True
 
-                fwlist, totalindex, checksum = watchOTA.watch_ota(binfile)
-
-                if fwlist != None:
-                    for i in tqdm(range(0, totalindex)):
-                        fw = fwlist[i]
+                    fwlist, totalindex, checksum = watchOTA.watch_ota(binType, binfile)
+                    
+                    # start ota
+                    val = "220D020e02%04X%04X%02X00" % (binVersion, binType, totalindex) 
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    ota_start_ack = False
+                    if not ble_conn.waitForNotifications(10):
+                        return True
+                   
+                    if ota_start_ack != True:
+                        return True
+                    
+                    # send fw packages
+                    ota_send_index = 0
+                    while ota_send_index < totalindex:
+                        fw = fwlist[ota_send_index]
                         ble_conn.writeCharacteristicRaw(0x23, fw, True) 
-                        if ble_conn.waitForNotifications(0.01):
-			    print("??")
+                        if ble_conn.waitForNotifications(0.05):
+                            print("What happen??")
+
+                        ota_send_index += 1
+
+                        sys.stdout.write('   \r')
+                        sys.stdout.flush()
+                        sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
+                        sys.stdout.flush()
+                        
+                    # send ota end
+                    val = "2203020E04%02X00" % (checksum) 
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
 
             else:
                 print("command error")
@@ -333,7 +379,7 @@ def test():
     global ble_conn
     global sub_thread 
     # test
-    ble_mac = "22:04:04:02:01:00"
+    ble_mac = "22:02:04:04:01:03"
     ble_connect(ble_mac)
 
    # open device uart log
