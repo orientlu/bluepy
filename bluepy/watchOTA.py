@@ -20,7 +20,7 @@ def watch_ota(indextype, bfile):
     readSize = fileSzie / 2
 
     # set fw type
-    if indextype == 1:
+    if indextype == 0:
         blebin_file.seek(0, 0)
     else:
         blebin_file.seek(readSize, 0)
@@ -66,9 +66,6 @@ if __name__ == "__main__":
     list, total_index, checksum = watch_ota(2, "./1.bin")
     if list != None:
         for i in list:
-
             print i
         print "total_index {0} checksum {1}".format(total_index, checksum)
-
-	val = "220D020e02%04X%04X%02X00" % (1, 2, 255) 
-	print val
+        
