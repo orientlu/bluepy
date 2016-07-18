@@ -23,6 +23,10 @@ ota_send_index = 0
 ota_old_version = 0
 ota_old_typeIndex = 1
 
+no_notification = False
+
+resend_lock = threading.Lock()
+
 def rprint(*log):
     print(state, "--->", "".join(log))
 
@@ -39,7 +43,7 @@ class MyDelegate(btle.DefaultDelegate):
         global ota_old_version
         global ota_old_typeIndex 
         global ota_pause
-
+        global resend_lock
         data = binascii.b2a_hex(data)
         rprint("Notification:", str(cHandle), " data ", data)
         msg_len = int(data[2:4], 16)
@@ -63,8 +67,10 @@ class MyDelegate(btle.DefaultDelegate):
 
             elif msg_sub_type == 0x03:
                 # resend req
-                str = data[12:14] + data[10:12]
-                ota_send_index = int(str, 16)
+                strdata = data[12:14] + data[10:12]
+                resend_lock.acquire()
+                ota_send_index = int(strdata, 16)
+                resend_lock.release()
                 rprint("Ota resend from index %d" % ota_send_index)
 
             elif msg_sub_type == 0x04:
@@ -80,8 +86,8 @@ class MyDelegate(btle.DefaultDelegate):
 
             elif msg_sub_type == 0x06:
                 # restart ota
-                str = data[12:14] + data[10:12]
-                ota_send_index = int(str, 16)
+                strdata = data[12:14] + data[10:12]
+                ota_send_index = int(strdata, 16)
                 ota_pause = False
                 rprint("OTA restart %04X" % ota_send_index)
 
@@ -110,6 +116,7 @@ class async_thread(threading.Thread):
         self.argv = None
 
     def run(self):
+        global no_notification
         while not self.exit:
             try:
                
@@ -170,7 +177,8 @@ class async_thread(threading.Thread):
                                 rprint("Msg Timeout count %d" % timeout_count)
                         time.sleep(delay) 
                 else:
-                    self.conn.waitForNotifications(0.1)
+                    if not no_notification:
+                        self.conn.waitForNotifications(0.1)
 
             except:
                 traceback.print_exc()
@@ -219,6 +227,8 @@ def process_cmd(argv):
     global ota_old_version
     global ota_old_typeIndex 
     global ota_pause
+    global no_notification
+    global resend_lock
 
     if not argv:
         return None
@@ -345,6 +355,7 @@ def process_cmd(argv):
                     sub_thread.argv = None
 
                 elif op == "ota":
+                    no_notification = True
                     # get device fw version and type
                     val = "2203020E010F"
                     ota_ack_num = 0xFF 
@@ -358,6 +369,7 @@ def process_cmd(argv):
                         return True
 
                     if len(argv) >= 3:
+
                         binfile = argv[1]
                         binVersion = int(argv[2])
                         # judge version
@@ -373,6 +385,11 @@ def process_cmd(argv):
                         else:
                             rprint("Failure 4 : TypeIndex unknow!!")
                             return True
+
+                        snd_content_str = """\x33\x10"""
+                        ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+                        rprint("Update connection para")
+                        time.sleep(3)
 
                         # get fw image list
                         fwlist, totalindex, checksum = watchOTA.watch_ota(binType, binfile)
@@ -398,13 +415,17 @@ def process_cmd(argv):
                             rprint("Failure 6 : OTA start ack not pass!! code %d" % ota_ack_num)
                             return True
                         
+                        rprint("Start send firmware packages")
+
                         # send fw packages
                         ota_send_index = 0
                         ota_pause = False
                         while ota_send_index < totalindex:
+                            resend_lock.acquire()
                             fw = fwlist[ota_send_index]
-                            ble_conn.writeCharacteristicRaw(0x23, fw, True) 
                             ota_send_index += 1
+                            resend_lock.release()
+                            ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
                             ble_conn.waitForNotifications(0.01)
 
                             sys.stdout.write('   \r')
@@ -416,7 +437,7 @@ def process_cmd(argv):
                                 time.sleep(1)
 
                         # send ota end
-                        val = "2203020E04%02X00" %(checksum) 
+                        val = "2204020E04%02X00" %(checksum) 
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
                         if not ble_conn.waitForNotifications(10):
@@ -510,7 +531,7 @@ if __name__ == '__main__':
         argv = cmd.split()
         if process_cmd(argv) == False:
             break
-
+        no_notification = False
 
     rprint("Application quit\n")
 
