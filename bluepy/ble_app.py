@@ -9,6 +9,7 @@ import signal
 import traceback
 import btle
 import watchOTA
+import os
 
 state = "[x]"
 ble_conn = None
@@ -46,7 +47,6 @@ class MyDelegate(btle.DefaultDelegate):
         global resend_lock
         data = binascii.b2a_hex(data)
         rprint("Notification:", str(cHandle), " data ", data)
-        msg_len = int(data[2:4], 16)
         msg_type = int(data[6:8], 16)
         msg_sub_type = int(data[8:10], 16)
 
@@ -59,7 +59,7 @@ class MyDelegate(btle.DefaultDelegate):
                 ota_old_version = int(strVer, 16)
                 ota_old_typeIndex = int(strInd, 16)
                 ota_ack_num = 0
-                print("Get watch version 0x%08X FW TypeIndex 0x%08X" % (ota_old_version, ota_old_typeIndex))
+                rprint("Get watch version 0x%08X FW TypeIndex 0x%08X" %(ota_old_version, ota_old_typeIndex))
 
             elif msg_sub_type == 0x02:
                 # ota start ack
@@ -368,10 +368,17 @@ def process_cmd(argv):
                         rprint("Failure 2 : didn't get device Version and fw TypeIndex !!")
                         return True
 
-                    if len(argv) >= 3:
+                    if len(argv) >= 2:
+                        binVersion = int(argv[1]) 
+                        if len(argv) >= 3:
+                            binfile = argv[2]
+                        else:
+                            if os.path.existis("./ota.img"):
+                                binfile = "./ota.img"
+                            else:
+                                rprint("Please give ota.img")
+                                return True
 
-                        binfile = argv[1]
-                        binVersion = int(argv[2])
                         # judge version
                         if ota_old_version == binVersion:
                             rprint("Failure 3 : same version no need update!!")
@@ -471,6 +478,7 @@ def usage_help():
         wc [handle] [data] [count] [delay]              : Write data with set count  
         ts [handle] [data] [delay] [ack]                : Test, send data loop  
         tss                                             : stop tc  
+        ota version [./ota.img]                         : how to ota
         .                                               : Repeat
         q                                               : Quit
     *************************************************************************************************************
@@ -504,15 +512,6 @@ def test():
     snd_content_str = """\x01\x00"""
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
    
-    #sub_thread.op = "sendloop"
-    #sub_thread.argv = {'ts', '23', '2204020B010300', '1', '1'}
-
-    #time.sleep(1)
-   # val = "22040201020304"
-   # snd_content_str = binascii.a2b_hex(val).decode('utf-8')
-   # ble_conn.writeCharacteristic(handle, snd_content_str, True)
-   # rprint("Send handler 0x%04x data %s" % (handle, val))
-
    # ble_disconnect() 
 
 
