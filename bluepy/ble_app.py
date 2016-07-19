@@ -373,7 +373,7 @@ def process_cmd(argv):
                         if len(argv) >= 3:
                             binfile = argv[2]
                         else:
-                            if os.path.existis("./ota.img"):
+                            if os.path.exists("./ota.img"):
                                 binfile = "./ota.img"
                             else:
                                 rprint("Please give ota.img")
@@ -456,6 +456,13 @@ def process_cmd(argv):
                             return True
                         else:
                             rprint("OTA finish!!")
+
+                        # Restart watch
+                        time.sleep(5)
+                        val = "2203020E0700"
+                        ota_ack_num = 0xFF
+                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                        rprint("Restart")
 
                 else:
                     print("command error")
