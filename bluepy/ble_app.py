@@ -462,7 +462,11 @@ def process_cmd(argv):
                         val = "2203020E0700"
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        rprint("Restart")
+                        rprint("Restart....")
+
+                        if not ble_conn.waitForNotifications(10):
+                            rprint("Restart Error")
+                        ble_disconnect()
 
                 else:
                     print("command error")
