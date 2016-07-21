@@ -102,8 +102,9 @@ class MyDelegate(btle.DefaultDelegate):
         elif isNewData:
             pass
             rprint("\nDiscovery:", "MAC:", dev.addr, " Rssi ", str(dev.rssi))
-	    for (adtype, desc, value) in dev.getScanData():
-		rprint ("  %s(0x%02x) = %s" % (desc, int(adtype), value))
+  
+  #     for (adtype, desc, value) in dev.getScanData():
+		#rprint ("  %s(0x%02x) = %s" % (desc, int(adtype), value))
 
 
 class async_thread(threading.Thread):
@@ -433,7 +434,7 @@ def process_cmd(argv):
                             ota_send_index += 1
                             resend_lock.release()
                             ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
-                            ble_conn.waitForNotifications(0.01)
+                            #ble_conn.waitForNotifications(0.04)
 
                             sys.stdout.write('   \r')
                             sys.stdout.flush()
@@ -467,12 +468,35 @@ def process_cmd(argv):
                         if not ble_conn.waitForNotifications(10):
                             rprint("Restart Error")
                         ble_disconnect()
+                elif op == "test":
+                    no_notification = True
+                    cmd = "220302FD"
+                    #Start
+                    val = cmd + "1800"
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    if not ble_conn.waitForNotifications(10):
+                        rprint("Test Error 1")
+                        return True
+
+                    for i in range(0, 0X1A):
+                        time.sleep(1)
+                        val = cmd + ("%02X00" % i)
+                        if i == 0x08 or i== 0x09:
+                            continue
+
+                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                        if not ble_conn.waitForNotifications(10):
+                            rprint("Test Error %d" %i)
+                            return True
+                        rprint("Test pass %d" %i)
+                    rprint("Test Finish")
 
                 else:
                     print("command error")
 
     except:
         traceback.print_exc()
+        os.exit(1)
 
     return True
 
@@ -503,6 +527,7 @@ def signal_handler(signal, frame):
         ble_disconnect()
     except:
         traceback.print_exc()
+        os.exit(1)
 
 
 def test():
