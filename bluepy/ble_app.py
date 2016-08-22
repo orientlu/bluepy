@@ -496,7 +496,7 @@ def process_cmd(argv):
 
     except:
         traceback.print_exc()
-        os.exit(1)
+        sys.exit()
 
     return True
 
@@ -527,7 +527,6 @@ def signal_handler(signal, frame):
         ble_disconnect()
     except:
         traceback.print_exc()
-        os.exit(1)
 
 
 def test():
@@ -561,7 +560,7 @@ if __name__ == '__main__':
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    while True and (not do_exit):
+    while not do_exit:
         cmd = raw_input("%s cmd $ " % state)
         argv = cmd.split()
         if process_cmd(argv) == False:
