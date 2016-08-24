@@ -179,10 +179,10 @@ class async_thread(threading.Thread):
                         time.sleep(delay) 
                 else:
                     if not no_notification:
-                        self.conn.waitForNotifications(0.1)
+                        self.conn.waitForNotifications(0.001)
 
             except:
-                traceback.print_exc()
+                #traceback.print_exc()
                 break
 
         self.conn.disconnect()
@@ -361,9 +361,11 @@ def process_cmd(argv):
                     val = "2203020E010F"
                     ota_ack_num = 0xFF 
                     ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                    if not ble_conn.waitForNotifications(10):
-                        rprint("Failure 1 : didn't get device Version and fw TypeIndex !!")
-                        return True
+                    
+                    wait_timeout = 0
+                    while wait_timeout < 10 and ota_ack_num == 0xFF:
+                        ble_conn.waitForNotifications(1) 
+                        wait_timeout += 1
 
                     if ota_ack_num != 0:
                         rprint("Failure 2 : didn't get device Version and fw TypeIndex !!")
@@ -394,9 +396,11 @@ def process_cmd(argv):
                             rprint("Failure 4 : TypeIndex unknow!!")
                             return True
 
+                        rprint("I want to Update connection para...wait 5s")
+                        time.sleep(5)
                         snd_content_str = """\x33\x10"""
                         ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
-                        rprint("Update connection para")
+                        rprint("Update connection para...wait 3s")
                         time.sleep(3)
 
                         # get fw image list
@@ -415,9 +419,10 @@ def process_cmd(argv):
 
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        if not ble_conn.waitForNotifications(10):
-                            rprint("Failure 5 : didn't get OTA start ack!!")
-                            return True
+                        wait_timeout = 0
+                        while wait_timeout < 10 and ota_ack_num == 0xFF:
+                            ble_conn.waitForNotifications(1) 
+                            wait_timeout += 1
                        
                         if ota_ack_num != 0:
                             rprint("Failure 6 : OTA start ack not pass!! code %d" % ota_ack_num)
@@ -434,7 +439,7 @@ def process_cmd(argv):
                             ota_send_index += 1
                             resend_lock.release()
                             ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
-                            #ble_conn.waitForNotifications(0.04)
+                            #ble_conn.waitForNotifications(0.001)
 
                             sys.stdout.write('   \r')
                             sys.stdout.flush()
@@ -448,9 +453,10 @@ def process_cmd(argv):
                         val = "2204020E04%02X00" %(checksum) 
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        if not ble_conn.waitForNotifications(10):
-                            rprint("Failure : didn't get OTA end ack!!")
-                            return True
+                        wait_timeout = 0
+                        while wait_timeout < 10 and ota_ack_num == 0xFF:
+                            ble_conn.waitForNotifications(1) 
+                            wait_timeout += 1
 
                         if ota_ack_num != 0:
                             rprint("Failure : OTA end error code %d!!" % ota_ack_num)
@@ -495,8 +501,7 @@ def process_cmd(argv):
                     print("command error")
 
     except:
-        traceback.print_exc()
-        sys.exit()
+        ble_disconnect()
 
     return True
 
@@ -534,6 +539,7 @@ def test():
     global ble_conn
     global sub_thread 
     # test
+    #ble_mac = "22:88:88:88:88:78"
     ble_mac = "22:02:04:04:01:03"
     ble_connect(ble_mac)
 
@@ -546,9 +552,6 @@ def test():
     handle = 0x23
     snd_content_str = """\x01\x00"""
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
-   
-   # ble_disconnect() 
-
 
 
 if __name__ == '__main__':
