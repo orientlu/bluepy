@@ -415,6 +415,7 @@ def process_cmd(argv):
                         val = val + v1[6:8] + v1[4:6] + v1[2:4] + v1[0:2]
                         val = val + v2[6:8] + v2[4:6] + v2[2:4] + v2[0:2]
                         val = val + v3[2:4] + v3[0:2]
+                        val = val + ("%02X" % checksum)
                         val = val + "00"
 
                         ota_ack_num = 0xFF
@@ -449,10 +450,8 @@ def process_cmd(argv):
                             while ota_pause:
                                 time.sleep(1)
 
-                        # send ota end
-                        val = "2204020E04%02X00" %(checksum) 
+                        # ota end
                         ota_ack_num = 0xFF
-                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
                         wait_timeout = 0
                         while wait_timeout < 10 and ota_ack_num == 0xFF:
                             ble_conn.waitForNotifications(1) 
@@ -539,8 +538,8 @@ def test():
     global ble_conn
     global sub_thread 
     # test
-    #ble_mac = "22:88:88:88:88:78"
-    ble_mac = "22:02:04:04:01:03"
+    ble_mac = "22:88:88:88:88:06"
+    #ble_mac = "22:02:04:04:01:03"
     ble_connect(ble_mac)
 
    # open device uart log
