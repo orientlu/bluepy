@@ -23,6 +23,7 @@ ota_pause = False
 ota_send_index = 0
 ota_old_version = 0
 ota_old_typeIndex = 1
+ota_end_ack = 0xff
 
 no_notification = False
 
@@ -41,6 +42,7 @@ class MyDelegate(btle.DefaultDelegate):
 
         global ota_send_index
         global ota_ack_num
+        global ota_end_ack
         global ota_old_version
         global ota_old_typeIndex 
         global ota_pause
@@ -75,7 +77,7 @@ class MyDelegate(btle.DefaultDelegate):
 
             elif msg_sub_type == 0x04:
                 # ota end ack
-                ota_ack_num = int(data[10:12], 16)
+                ota_end_ack = int(data[10:12], 16)
 
             elif msg_sub_type == 0x05:
                 # ota erro
@@ -224,6 +226,7 @@ def process_cmd(argv):
     global last_argv
 
     global ota_send_index
+    global ota_end_ack
     global ota_ack_num
     global ota_old_version
     global ota_old_typeIndex 
@@ -360,7 +363,6 @@ def process_cmd(argv):
                     val = "2203020E010F"
                     ota_ack_num = 0xFF 
                     ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
                     
                     wait_timeout = 0
                     while wait_timeout < 10 and ota_ack_num == 0xFF:
@@ -410,7 +412,7 @@ def process_cmd(argv):
                         rprint("New firmware : totalindex %d checksum 0x%02X" %(totalindex, checksum))
 
                         # send start ota
-                        val = "220D020E02"
+                        val = "220E020E02"
                         v1 = "%08X" % binVersion
                         v2 = "%08X" % binType
                         v3=  "%04X" % totalindex
@@ -422,10 +424,11 @@ def process_cmd(argv):
 
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
                         wait_timeout = 0
                         while wait_timeout < 10 and ota_ack_num == 0xFF:
-                            ble_conn.waitForNotifications(1) 
+                            if not ble_conn.waitForNotifications(1): 
+                                ble_conn.writeCharacteristicRaw(0x23, val, True) 
+
                             wait_timeout += 1
                        
                         if ota_ack_num != 0:
@@ -439,6 +442,7 @@ def process_cmd(argv):
                         ota_pause = False
 
                         start_time = time.time()
+                        ota_end_ack = 0xff
                         while ota_send_index < totalindex:
                             resend_lock.acquire()
                             i = 0
@@ -453,8 +457,12 @@ def process_cmd(argv):
                             resend_lock.release()
 
                             ble_conn.writeCharacteristicRaw(0x2b, fw, False) 
-                            ble_conn.waitForNotifications(0.075)
-                            
+
+                            if ble_conn.waitForNotifications(0.02):
+                                no_notification = False
+                                time.sleep(0.07)
+                                no_notification = True
+
                             sys.stdout.write('   \r')
                             sys.stdout.flush()
                             sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
@@ -464,15 +472,14 @@ def process_cmd(argv):
                                 time.sleep(1)
 
                         # ota end
-                        ota_ack_num = 0xFF
                         rprint("Total_time : %d" % (time.time() - start_time))
                         wait_timeout = 0
-                        while wait_timeout < 10 and ota_ack_num == 0xFF:
+                        while wait_timeout < 10 and ota_end_ack == 0xFF:
                             ble_conn.waitForNotifications(1) 
                             wait_timeout += 1
 
-                        if ota_ack_num != 0:
-                            rprint("Failure : OTA end error code %d!!" % ota_ack_num)
+                        if ota_end_ack != 0:
+                            rprint("Failure : OTA end error code %d!!" % ota_end_ack)
                             return True
                         else:
                             rprint("OTA finish!!")
