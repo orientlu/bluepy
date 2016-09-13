@@ -71,7 +71,7 @@ class MyDelegate(btle.DefaultDelegate):
                 resend_lock.acquire()
                 ota_send_index = int(strdata, 16)
                 resend_lock.release()
-                rprint("Ota resend from index %d" % ota_send_index)
+                rprint("Ota resend from index 0x%04X" % ota_send_index)
 
             elif msg_sub_type == 0x04:
                 # ota end ack
@@ -104,7 +104,7 @@ class MyDelegate(btle.DefaultDelegate):
             rprint("\nDiscovery:", "MAC:", dev.addr, " Rssi ", str(dev.rssi))
   
   #     for (adtype, desc, value) in dev.getScanData():
-		#rprint ("  %s(0x%02x) = %s" % (desc, int(adtype), value))
+        #rprint ("  %s(0x%02x) = %s" % (desc, int(adtype), value))
 
 
 class async_thread(threading.Thread):
@@ -181,8 +181,8 @@ class async_thread(threading.Thread):
                     if not no_notification:
                         self.conn.waitForNotifications(0.001)
 
-            except:
-                #traceback.print_exc()
+	    except btle.BTLEException:
+                traceback.print_exc()
                 break
 
         self.conn.disconnect()
@@ -314,7 +314,6 @@ def process_cmd(argv):
                     val = "22040201020304"
                     if len(argv) >= 3:
                         val = argv[2]
-
                     ble_conn.writeCharacteristicRaw(handle, val, True)
                     rprint("Send handler 0x%04x data %s" % (handle, val))
 
@@ -361,6 +360,7 @@ def process_cmd(argv):
                     val = "2203020E010F"
                     ota_ack_num = 0xFF 
                     ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
                     
                     wait_timeout = 0
                     while wait_timeout < 10 and ota_ack_num == 0xFF:
@@ -397,6 +397,8 @@ def process_cmd(argv):
                             return True
 
                         rprint("I want to Update connection para...wait 5s")
+
+                        ble_conn.setMTU(210); 
                         time.sleep(5)
                         snd_content_str = """\x33\x10"""
                         ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
@@ -420,6 +422,7 @@ def process_cmd(argv):
 
                         ota_ack_num = 0xFF
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
                         wait_timeout = 0
                         while wait_timeout < 10 and ota_ack_num == 0xFF:
                             ble_conn.waitForNotifications(1) 
@@ -434,14 +437,24 @@ def process_cmd(argv):
                         # send fw packages
                         ota_send_index = 0
                         ota_pause = False
+
+                        start_time = time.time()
                         while ota_send_index < totalindex:
                             resend_lock.acquire()
-                            fw = fwlist[ota_send_index]
-                            ota_send_index += 1
-                            resend_lock.release()
-                            ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
-                            #ble_conn.waitForNotifications(0.001)
+                            i = 0
+                            fw = ""
+                            while ota_send_index < totalindex and i < 10:
 
+                                fw += fwlist[ota_send_index]
+                                ota_send_index += 1
+                                i += 1
+
+                            rprint("IMG %s" % (fw))
+                            resend_lock.release()
+
+                            ble_conn.writeCharacteristicRaw(0x2b, fw, False) 
+                            ble_conn.waitForNotifications(0.075)
+                            
                             sys.stdout.write('   \r')
                             sys.stdout.flush()
                             sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
@@ -452,6 +465,7 @@ def process_cmd(argv):
 
                         # ota end
                         ota_ack_num = 0xFF
+                        rprint("Total_time : %d" % (time.time() - start_time))
                         wait_timeout = 0
                         while wait_timeout < 10 and ota_ack_num == 0xFF:
                             ble_conn.waitForNotifications(1) 
@@ -499,7 +513,8 @@ def process_cmd(argv):
                 else:
                     print("command error")
 
-    except:
+    except btle.BTLEException:
+        traceback.print_exc()
         ble_disconnect()
 
     return True
@@ -529,7 +544,7 @@ def signal_handler(signal, frame):
     try:
         do_exit = True
         ble_disconnect()
-    except:
+    except btle.BTLEException:
         traceback.print_exc()
 
 
@@ -538,20 +553,23 @@ def test():
     global ble_conn
     global sub_thread 
     # test
-    ble_mac = "22:88:88:88:88:06"
-    #ble_mac = "22:02:04:04:01:03"
+    #ble_mac = "22:88:88:88:88:03"
+    ble_mac = "22:02:04:04:01:03"
     ble_connect(ble_mac)
 
    # open device uart log
     snd_content_str = """\x33\x31"""
-    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+    #ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
     rprint("Test : listenning and open log")
 
    # listenning
     handle = 0x23
     snd_content_str = """\x01\x00"""
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
-
+    
+    time.sleep(0.001)
+    snd_content_str = "2204020b010400"
+    ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
 
 if __name__ == '__main__':
     
