@@ -21,7 +21,7 @@ do_exit = False
 ota_ack_num = 0
 ota_pause = False
 ota_send_index = 0
-ota_old_version = 0
+ota_old_version = "303030303031"
 ota_old_typeIndex = 1
 ota_end_ack = 0xff
 
@@ -56,12 +56,10 @@ class MyDelegate(btle.DefaultDelegate):
         if msg_type == 0x1E:
             if msg_sub_type == 0X01:
                 # fw version and type
-                strVer = data[16:18] + data[14:16] + data[12:14] + data[10:12]
-                strInd = data[24:26] + data[22:24] + data[20:22] + data[18:20]
-                ota_old_version = int(strVer, 16)
-                ota_old_typeIndex = int(strInd, 16)
+                ota_old_version = data[10:22]
+                ota_old_typeIndex = int(data[22:24], 16)
                 ota_ack_num = 0
-                rprint("Get watch version 0x%08X FW TypeIndex 0x%08X" %(ota_old_version, ota_old_typeIndex))
+                rprint("Get watch version V.%s FW TypeIndex 0x%02X" %(ota_old_version, ota_old_typeIndex))
 
             elif msg_sub_type == 0x02:
                 # ota start ack
@@ -359,141 +357,141 @@ def process_cmd(argv):
 
                 elif op == "ota":
                     no_notification = True
+
                     # get device fw version and type
                     val = "2203020E010F"
                     ota_ack_num = 0xFF 
                     ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                    
                     wait_timeout = 0
                     while wait_timeout < 10 and ota_ack_num == 0xFF:
                         ble_conn.waitForNotifications(1) 
                         wait_timeout += 1
 
                     if ota_ack_num != 0:
-                        rprint("Failure 2 : didn't get device Version and fw TypeIndex !!")
+                        rprint("Failure 1 : didn't get device Version and fw TypeIndex !!")
                         return True
 
-                    if len(argv) >= 2:
-                        binVersion = int(argv[1]) 
-                        if len(argv) >= 3:
-                            binfile = argv[2]
-                        else:
-                            if os.path.exists("./ota.img"):
-                                binfile = "./ota.img"
-                            else:
-                                rprint("Please give ota.img")
-                                return True
+                    binVersion = "393939393939"
+                    if os.path.exists("./ota.img"):
+                        binfile = "./ota.img"
+                    else:
+                        rprint("Please give ota.img")
+                        return True
 
-                        # judge version
-                        if ota_old_version == binVersion:
-                            rprint("Failure 3 : same version no need update!!")
-                            return True
+                    # judge version
+                    if ota_old_version == binVersion:
+                        rprint("Failure 2 : same version no need update!!")
+                        return True
 
-                        # set new fw TypeIndex
-                        if ota_old_typeIndex == 0:
-                            binType = 1
-                        elif ota_old_typeIndex == 1:
-                            binType = 0
-                        else:
-                            rprint("Failure 4 : TypeIndex unknow!!")
-                            return True
+                    # set new fw TypeIndex
+                    if ota_old_typeIndex == 0:
+                        binType = 1
+                    elif ota_old_typeIndex == 1:
+                        binType = 0
+                    else:
+                        rprint("Failure 3 : TypeIndex unknow!!")
+                        return True
 
-                        rprint("I want to Update connection para...wait 5s")
+                    rprint("I want to Update connection para...wait 5s")
 
-                        ble_conn.setMTU(210); 
-                        time.sleep(5)
-                        snd_content_str = """\x33\x10"""
-                        ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
-                        rprint("Update connection para...wait 3s")
-                        time.sleep(3)
+                    ble_conn.setMTU(210); 
 
-                        # get fw image list
-                        fwlist, totalindex, checksum = watchOTA.watch_ota(binType, binfile)
-                        rprint("New firmware : totalindex %d checksum 0x%02X" %(totalindex, checksum))
+                    time.sleep(5)
+                    snd_content_str = """\x33\x10"""
+                    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+                    rprint("Update connection para...wait 3s")
+                    time.sleep(3)
 
-                        # send start ota
-                        val = "220E020E02"
-                        v1 = "%08X" % binVersion
-                        v2 = "%08X" % binType
-                        v3=  "%04X" % totalindex
-                        val = val + v1[6:8] + v1[4:6] + v1[2:4] + v1[0:2]
-                        val = val + v2[6:8] + v2[4:6] + v2[2:4] + v2[0:2]
-                        val = val + v3[2:4] + v3[0:2]
-                        val = val + ("%02X" % checksum)
-                        val = val + "00"
+                    # get fw image list
+                    fwlist, totalindex, checksum = watchOTA.watch_ota(binType, binfile)
+                    rprint("New firmware : totalindex %d checksum 0x%02X" %(totalindex, checksum))
 
-                        ota_ack_num = 0xFF
-                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        wait_timeout = 0
-                        while wait_timeout < 10 and ota_ack_num == 0xFF:
-                            if not ble_conn.waitForNotifications(1): 
-                                ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    # send start ota
+                    val = "220D020E02"
+                    v1 = "%02X" % binType
+                    v2=  "%04X" % totalindex
+                    v3 = "%02X" % checksum
+                    val = val + binVersion
+                    val = val + v1
+                    val = val + v2[2:4] + v2[0:2]
+                    val = val + v3 
+                    val = val + "00"
 
-                            wait_timeout += 1
-                       
-                        if ota_ack_num != 0:
-                            rprint("Failure 6 : OTA start ack not pass!! code %d" % ota_ack_num)
-                            return True
+                    ota_ack_num = 0xFF
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    wait_timeout = 0
+                    while wait_timeout < 10 and ota_ack_num == 0xFF:
+                        if not ble_conn.waitForNotifications(1): 
+                            ble_conn.writeCharacteristicRaw(0x23, val, True) 
+
+                        wait_timeout += 1
+                   
+                    if ota_ack_num != 0:
+                        rprint("Failure 5 : OTA start ack not pass!! code %d" % ota_ack_num)
+                        return True
+                    
+                    rprint("Start send firmware packages")
+
+                    # send fw packages
+                    ota_send_index = 0
+                    ota_pause = False
+
+                    start_time = time.time()
+                    ota_end_ack = 0xff
+                    while ota_send_index < totalindex:
+                        resend_lock.acquire()
+                        i = 0
+                        fw = ""
+                        while ota_send_index < totalindex and i < 10:
+
+                            fw += fwlist[ota_send_index]
+                            ota_send_index += 1
+                            i += 1
+
+                        rprint("IMG %s" % (fw))
+                        resend_lock.release()
+
+                        ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
+
+                        if ble_conn.waitForNotifications(0.001):
+                            no_notification = False
+                            time.sleep(0.07)
+                            no_notification = True
+
+                        sys.stdout.write('   \r')
+                        sys.stdout.flush()
+                        sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
+                        sys.stdout.flush()
                         
-                        rprint("Start send firmware packages")
+                        while ota_pause:
+                            time.sleep(1)
 
-                        # send fw packages
-                        ota_send_index = 0
-                        ota_pause = False
+                    # ota end
+                    rprint("Total_time : %d" % (time.time() - start_time))
+                    rprint("Total_packages : %d" % (totalindex))
 
-                        start_time = time.time()
-                        ota_end_ack = 0xff
-                        while ota_send_index < totalindex:
-                            resend_lock.acquire()
-                            i = 0
-                            fw = ""
-                            while ota_send_index < totalindex and i < 10:
+                    wait_timeout = 0
+                    while wait_timeout < 10 and ota_end_ack == 0xFF:
+                        ble_conn.waitForNotifications(1) 
+                        wait_timeout += 1
 
-                                fw += fwlist[ota_send_index]
-                                ota_send_index += 1
-                                i += 1
+                    if ota_end_ack != 0:
+                        rprint("Failure : OTA end error code %d!!" % ota_end_ack)
+                        return True
+                    else:
+                        rprint("OTA finish!!")
 
-                            rprint("IMG %s" % (fw))
-                            resend_lock.release()
+                    # Restart watch
+                    time.sleep(5)
+                    val = "2203020E0700"
+                    ota_ack_num = 0xFF
+                    ble_conn.writeCharacteristicRaw(0x23, val, True) 
+                    rprint("Restart....")
 
-                            ble_conn.writeCharacteristicRaw(0x2b, fw, False) 
+                    if not ble_conn.waitForNotifications(10):
+                        rprint("Restart Error")
+                    ble_disconnect()
 
-                            if ble_conn.waitForNotifications(0.02):
-                                no_notification = False
-                                time.sleep(0.07)
-                                no_notification = True
-
-                            sys.stdout.write('   \r')
-                            sys.stdout.flush()
-                            sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
-                            sys.stdout.flush()
-                            
-                            while ota_pause:
-                                time.sleep(1)
-
-                        # ota end
-                        rprint("Total_time : %d" % (time.time() - start_time))
-                        wait_timeout = 0
-                        while wait_timeout < 10 and ota_end_ack == 0xFF:
-                            ble_conn.waitForNotifications(1) 
-                            wait_timeout += 1
-
-                        if ota_end_ack != 0:
-                            rprint("Failure : OTA end error code %d!!" % ota_end_ack)
-                            return True
-                        else:
-                            rprint("OTA finish!!")
-
-                        # Restart watch
-                        time.sleep(5)
-                        val = "2203020E0700"
-                        ota_ack_num = 0xFF
-                        ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        rprint("Restart....")
-
-                        if not ble_conn.waitForNotifications(10):
-                            rprint("Restart Error")
-                        ble_disconnect()
                 elif op == "test":
                     no_notification = True
                     cmd = "220302FD"
