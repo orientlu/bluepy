@@ -63,7 +63,7 @@ def watch_ota(indextype, bfile):
 
 if __name__ == "__main__":
 
-    list, total_index, checksum = watch_ota(0, "./1.bin")
+    list, total_index, checksum = watch_ota(0, "./ota.img")
     if list != None:
         for i in list:
             print i

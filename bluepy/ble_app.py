@@ -34,6 +34,7 @@ def rprint(*log):
 
 class MyDelegate(btle.DefaultDelegate):
 
+    count = 0
     def __init__(self, conn):
         btle.DefaultDelegate.__init__(self)
         self.conn = conn
@@ -48,7 +49,11 @@ class MyDelegate(btle.DefaultDelegate):
         global ota_pause
         global resend_lock
         data = binascii.b2a_hex(data)
-        rprint("Notification:", str(cHandle), " data ", data)
+        self.count += 1
+        rprint("Notification:", str(cHandle), " pata ", data)
+        rprint("Rx index : %d" %self.count)
+        print(len(data)/2)
+
         msg_type = int(data[6:8], 16)
         msg_sub_type = int(data[8:10], 16)
 
@@ -439,32 +444,64 @@ def process_cmd(argv):
                     start_time = time.time()
                     ota_end_ack = 0xff
                     while ota_send_index < totalindex:
-                        resend_lock.acquire()
-                        i = 0
-                        fw = ""
-                        while ota_send_index < totalindex and i < 10:
 
-                            fw += fwlist[ota_send_index]
-                            ota_send_index += 1
-                            i += 1
+                        try :
 
-                        rprint("IMG %s" % (fw))
-                        resend_lock.release()
+                            resend_lock.acquire()
+                            i = 0
+                            if len(argv) >= 2:
+                                fw = "B0"
+                            else:
+                                fw = ""
 
-                        ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
+                            while ota_send_index < totalindex and i < 10:
 
-                        if ble_conn.waitForNotifications(0.001):
-                            no_notification = False
-                            time.sleep(0.07)
-                            no_notification = True
+                                fw += fwlist[ota_send_index]
+                                ota_send_index += 1
+                                i += 1
 
-                        sys.stdout.write('   \r')
-                        sys.stdout.flush()
-                        sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
-                        sys.stdout.flush()
-                        
-                        while ota_pause:
-                            time.sleep(1)
+                            rprint("IMG %s" % (fw))
+                            resend_lock.release()
+
+                            ble_conn.writeCharacteristicRaw(0x2b, fw, True) 
+
+                            if ble_conn.waitForNotifications(0.001):
+                                no_notification = False
+                                time.sleep(0.07)
+                                no_notification = True
+
+                            sys.stdout.write('   \r')
+                            sys.stdout.flush()
+                            sys.stdout.write('{}%\r'.format(ota_send_index*100/totalindex))
+                            sys.stdout.flush()
+                            
+                            while ota_pause:
+                                time.sleep(1)
+
+	                except btle.BTLEException:
+
+                            rprint("****************** disconnect reconnecting!!!")
+
+                            ble_disconnect()
+                            ble_connect(ble_mac)
+                           # listenning
+
+                            snd_content_str = """\x01\x00"""
+                            handle = 0x23
+                            ble_conn.writeCharacteristic((handle+1), snd_content_str)
+
+                            handle = 0x27
+                            ble_conn.writeCharacteristic((handle+1), snd_content_str)
+
+                            handle = 0x2b;
+                            ble_conn.writeCharacteristic((handle+1), snd_content_str)
+
+                            ble_conn.setMTU(210); 
+
+                            time.sleep(5)
+                            snd_content_str = """\x33\x10"""
+                            ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+                            time.sleep(3)
 
                     # ota end
                     rprint("Total_time : %d" % (time.time() - start_time))
@@ -515,6 +552,35 @@ def process_cmd(argv):
                         rprint("Test pass %d" %i)
                     rprint("Test Finish")
 
+                elif op == "stream":
+
+                    no_notification = True
+
+                    ble_conn.setMTU(403); 
+
+                    time.sleep(0.5)
+
+                    handle = 0x2b;
+                    snd_content_str = """\x33\x10"""
+                    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+                    rprint("Update connection para...wait 3s")
+
+                    time.sleep(3)
+
+                    snd_content_str = "C0"
+                    snd_content_str += "55" * 35 * 10
+                    i = 500
+                    start_time = time.time()
+                    timeout = 0
+                    while i > 0:
+                        ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+                        rprint("Send index : %d" %i)
+                        i -= 1
+                        #time.sleep(0.1)
+                        if not ble_conn.waitForNotifications(1):
+                            rprint("Time out -------")
+
+                    rprint("Total_time : %d" % (time.time() - start_time))
                 else:
                     print("command error")
 
@@ -557,33 +623,73 @@ def test():
     global ble_mac
     global ble_conn
     global sub_thread 
+    global do_exit
     # test
     #ble_mac = "22:88:88:88:88:03"
-    ble_mac = "22:02:04:04:01:03"
+    #ble_mac = "34:31:64:63:62:31"
+    ble_mac = "22:99:00:00:00:04"
+    #ble_mac = "22:01:00:00:01:0d"
     ble_connect(ble_mac)
 
    # open device uart log
     snd_content_str = """\x33\x31"""
     #ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
-    rprint("Test : listenning and open log")
+    #rprint("Test : listenning and open log")
 
    # listenning
-    handle = 0x23
+    handle = 0x27
     snd_content_str = """\x01\x00"""
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
-    
-    time.sleep(0.001)
+
+    handle = 0x23
+    ble_conn.writeCharacteristic((handle+1), snd_content_str)
+
+    handle = 0x2b;
+    ble_conn.writeCharacteristic((handle+1), snd_content_str)
+
+    #snd_content_str = "220702FF01E0FF070000"
+    #ble_conn.writeCharacteristicRaw(0x23, snd_content_str, True)
+    #snd_content_str = "220702FF01F0FF070000"
+    #ble_conn.writeCharacteristicRaw(0x23, snd_content_str, True)
+
+    time.sleep(1)
+    count = 0;
+
+    handle = 0x23;
     snd_content_str = "2204020b010400"
     ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+    time.sleep(0.2)
+
+    if do_exit:
+        count += 1
+        print("send time :%d" %count)
+
+        snd_content_str = "2203020d0100"
+        ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+        time.sleep(0.2)
+
+        handle = 0x23;
+        snd_content_str = "2204020b010400"
+        ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+        time.sleep(0.2)
+
+        snd_content_str = "2203020a0500"
+        ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+        time.sleep(0.2)
+
+        snd_content_str = "2203020d0100"
+        ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+        time.sleep(0.2)
+
 
 if __name__ == '__main__':
     
     rprint("Application Startt\n")
  
+    signal.signal(signal.SIGINT, signal_handler)
+
     #btle.Debugging = True
     test()
-
-    signal.signal(signal.SIGINT, signal_handler)
 
     while not do_exit:
         cmd = raw_input("%s cmd $ " % state)
