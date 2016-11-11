@@ -450,9 +450,9 @@ def process_cmd(argv):
                             resend_lock.acquire()
                             i = 0
                             if len(argv) >= 2:
-                                fw = "B0"
-                            else:
                                 fw = ""
+                            else:
+                                fw = "B0"
 
                             while ota_send_index < totalindex and i < 10:
 
@@ -603,7 +603,7 @@ def usage_help():
         wc [handle] [data] [count] [delay]              : Write data with set count  
         ts [handle] [data] [delay] [ack]                : Test, send data loop  
         tss                                             : stop tc  
-        ota version [./ota.img]                         : how to ota
+        ota [11]                                        : ota [old ota]
         .                                               : Repeat
         q                                               : Quit
     *************************************************************************************************************
@@ -626,9 +626,11 @@ def test():
     global do_exit
     # test
     #ble_mac = "22:88:88:88:88:03"
-    #ble_mac = "34:31:64:63:62:31"
+    ble_mac = "22:01:00:00:03:c2"
+    ble_mac = "22:01:00:00:03:10"
     ble_mac = "22:99:00:00:00:04"
-    #ble_mac = "22:01:00:00:01:0d"
+    ble_mac = "22:01:00:00:03:31"
+
     ble_connect(ble_mac)
 
    # open device uart log
