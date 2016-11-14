@@ -98,6 +98,12 @@ class MyDelegate(btle.DefaultDelegate):
 
             else:
                 pass
+        # authorization
+        elif msg_type == 0x1B:
+            if msg_sub_type == 0X02:
+                vbat = int(data[26:28], 16)
+                rprint("Battery : %d" % vbat)
+
         else:
             pass
 
@@ -629,7 +635,7 @@ def test():
     ble_mac = "22:01:00:00:03:c2"
     ble_mac = "22:01:00:00:03:10"
     ble_mac = "22:99:00:00:00:04"
-    ble_mac = "22:01:00:00:03:31"
+    ble_mac = "22:01:00:00:03:14"
 
     ble_connect(ble_mac)
 
