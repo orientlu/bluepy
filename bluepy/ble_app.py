@@ -10,6 +10,26 @@ import traceback
 import btle
 import watchOTA
 import os
+import xlwt
+
+import struct
+
+excel_name=time.strftime('%Y-%m-%d_%H:%M:%S',time.localtime(time.time()))+".xls"
+excel_file=xlwt.Workbook()
+excel_table=excel_file.add_sheet("1")
+excel_index=0
+
+
+import wx
+from matplotlib.figure import Figure
+import matplotlib.font_manager as font_manager
+from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
+import numpy as np
+
+x_data = [None] * 300
+y_data = [None] * 300
+z_data = [None] * 300
+
 
 state = "[x]"
 ble_conn = None
@@ -45,67 +65,100 @@ class MyDelegate(btle.DefaultDelegate):
         global ota_ack_num
         global ota_end_ack
         global ota_old_version
-        global ota_old_typeIndex 
+        global ota_old_typeIndex
         global ota_pause
         global resend_lock
-        data = binascii.b2a_hex(data)
-        self.count += 1
-        rprint("Notification:", str(cHandle), " pata ", data)
-        rprint("Rx index : %d" %self.count)
-        print(len(data)/2)
 
-        msg_type = int(data[6:8], 16)
-        msg_sub_type = int(data[8:10], 16)
+        if cHandle == 0x2B:
+                head = struct.unpack("B", data[0])[0]
+                print("Head %02x len %d"% (head, len(data)))
+                s_len = len(data)
+                if s_len % 2 == 0:
+                    s_len = 0
 
-        # OTA
-        if msg_type == 0x1E:
-            if msg_sub_type == 0X01:
-                # fw version and type
-                ota_old_version = data[10:22]
-                ota_old_typeIndex = int(data[22:24], 16)
-                ota_ack_num = 0
-                rprint("Get watch version V.%s FW TypeIndex 0x%02X" %(ota_old_version, ota_old_typeIndex))
+                index = 1
+                global excel_table
+                global excel_name
+                global excel_file
+                global excel_index
 
-            elif msg_sub_type == 0x02:
-                # ota start ack
-                ota_ack_num = int(data[10:12], 16)
+                global x_data
+                global y_data
+                global z_data
+                while index < s_len:
+                    point=struct.unpack('<hhh', data[index:index+6])
+                    index += 6
+                    excel_table.write(excel_index, 0, str(point[0]))
+                    excel_table.write(excel_index, 1, str(point[1]))
+                    excel_table.write(excel_index, 2, str(point[2]))
+                    excel_index += 1
+                    x_data = x_data[1:] + [(point[0])]
+                    y_data = y_data[1:] + [(point[1])]
+                    z_data = z_data[1:] + [(point[2])]
+                    print("(%d %d %d)"%(point[0], point[1], point[2]))
+                excel_file.save(excel_name)
+                data = binascii.b2a_hex(data)
+                print("Notification: ", data)
+        else :
+                data = binascii.b2a_hex(data)
 
-            elif msg_sub_type == 0x03:
-                # resend req
-                strdata = data[12:14] + data[10:12]
-                resend_lock.acquire()
-                ota_send_index = int(strdata, 16)
-                resend_lock.release()
-                rprint("Ota resend from index 0x%04X" % ota_send_index)
+                self.count += 1
+                rprint("Notification:", str(cHandle), " pata ", data)
+                rprint("Rx index : %d" %self.count)
 
-            elif msg_sub_type == 0x04:
-                # ota end ack
-                ota_end_ack = int(data[10:12], 16)
+                msg_type = int(data[6:8], 16)
+                msg_sub_type = int(data[8:10], 16)
 
-            elif msg_sub_type == 0x05:
-                # ota erro
-                code = int(data[12:14], 16)
-                if code == 0x02:
-                    rprint("OTA pause")
-                    ota_pause = True
+                # OTA
+                if msg_type == 0x1E:
+                    if msg_sub_type == 0X01:
+                        # fw version and type
+                        ota_old_version = data[10:22]
+                        ota_old_typeIndex = int(data[22:24], 16)
+                        ota_ack_num = 0
+                        rprint("Get watch version V.%s FW TypeIndex 0x%02X" %(ota_old_version, ota_old_typeIndex))
 
-            elif msg_sub_type == 0x06:
-                # restart ota
-                strdata = data[12:14] + data[10:12]
-                ota_send_index = int(strdata, 16)
-                ota_pause = False
-                rprint("OTA restart %04X" % ota_send_index)
+                    elif msg_sub_type == 0x02:
+                        # ota start ack
+                        ota_ack_num = int(data[10:12], 16)
 
-            else:
-                pass
-        # authorization
-        elif msg_type == 0x1B:
-            if msg_sub_type == 0X02:
-                vbat = int(data[26:28], 16)
-                rprint("Battery : %d" % vbat)
+                    elif msg_sub_type == 0x03:
+                        # resend req
+                        strdata = data[12:14] + data[10:12]
+                        resend_lock.acquire()
+                        ota_send_index = int(strdata, 16)
+                        resend_lock.release()
+                        rprint("Ota resend from index 0x%04X" % ota_send_index)
 
-        else:
-            pass
+                    elif msg_sub_type == 0x04:
+                        # ota end ack
+                        ota_end_ack = int(data[10:12], 16)
+
+                    elif msg_sub_type == 0x05:
+                        # ota erro
+                        code = int(data[12:14], 15)
+                        if code == 0x02:
+                            rprint("OTA pause")
+                            ota_pause = True
+
+                    elif msg_sub_type == 0x06:
+                        # restart ota
+                        strdata = data[12:14] + data[10:12]
+                        ota_send_index = int(strdata, 16)
+                        ota_pause = False
+                        rprint("OTA restart %04X" % ota_send_index)
+
+                    else:
+                        pass
+                # authorization
+                elif msg_type == 0x21:
+                    if msg_sub_type == 0X02:
+                        before_vbat = int((data[12:14] + data[10:12]), 16)
+                        after_vbat = int((data[16:18] + data[14:16]), 16)
+                        rprint("Battery : before : %d after : %d"% (before_vbat, after_vbat))
+
+                else:
+                    pass
 
     def handleDiscovery(self, dev, isNewDev, isNewData):
         if isNewDev:
@@ -113,7 +166,6 @@ class MyDelegate(btle.DefaultDelegate):
         elif isNewData:
             pass
             rprint("\nDiscovery:", "MAC:", dev.addr, " Rssi ", str(dev.rssi))
-  
   #     for (adtype, desc, value) in dev.getScanData():
         #rprint ("  %s(0x%02x) = %s" % (desc, int(adtype), value))
 
@@ -131,7 +183,6 @@ class async_thread(threading.Thread):
         global no_notification
         while not self.exit:
             try:
-               
                 if self.op == "primary":
                     print("-------------------------------------------------")
                     sers = self.conn.getServices()
@@ -168,12 +219,10 @@ class async_thread(threading.Thread):
                     delay = 0 
                     if len(argv) >= 4:
                         delay = float(argv[3])
-                    
                     wait_ack = 0
                     if len(argv) >= 5:
                         wait_ack = int(argv[4])
 
-                   
                     while self.op == "sendloop":
 
                         self.conn.writeCharacteristicRaw(handle, val, True)
@@ -192,7 +241,7 @@ class async_thread(threading.Thread):
                     if not no_notification:
                         self.conn.waitForNotifications(0.001)
 
-	    except btle.BTLEException:
+            except btle.BTLEException:
                 traceback.print_exc()
                 break
 
@@ -224,6 +273,8 @@ def ble_disconnect():
     if not sub_thread is None:
         sub_thread.exit = True
         sub_thread = None
+        time.sleep(1)
+        ble_conn.disconnect()
         ble_conn = None
         state = "[x]"
         rprint("disconnected")
@@ -405,7 +456,6 @@ def process_cmd(argv):
 
                     rprint("I want to Update connection para...wait 5s")
 
-                    ble_conn.setMTU(210); 
 
                     time.sleep(5)
                     snd_content_str = """\x33\x10"""
@@ -415,8 +465,7 @@ def process_cmd(argv):
 
                     # get fw image list
                     fwlist, totalindex, checksum = watchOTA.watch_ota(binType, binfile)
-                    rprint("New firmware : totalindex %d checksum 0x%02X" %(totalindex, checksum))
-
+                    rprint("New firmware : totalindex %d checksum 0x%02X" %(totalindex, checksum)) 
                     # send start ota
                     val = "220D020E02"
                     v1 = "%02X" % binType
@@ -502,7 +551,6 @@ def process_cmd(argv):
                             handle = 0x2b;
                             ble_conn.writeCharacteristic((handle+1), snd_content_str)
 
-                            ble_conn.setMTU(210); 
 
                             time.sleep(5)
                             snd_content_str = """\x33\x10"""
@@ -552,7 +600,7 @@ def process_cmd(argv):
                             continue
 
                         ble_conn.writeCharacteristicRaw(0x23, val, True) 
-                        if not ble_conn.waitForNotifications(10):
+                        if not ble_conn.waitForNotifications(5):
                             rprint("Test Error %d" %i)
                             return True
                         rprint("Test pass %d" %i)
@@ -562,7 +610,6 @@ def process_cmd(argv):
 
                     no_notification = True
 
-                    ble_conn.setMTU(403); 
 
                     time.sleep(0.5)
 
@@ -574,16 +621,17 @@ def process_cmd(argv):
                     time.sleep(3)
 
                     snd_content_str = "C0"
-                    snd_content_str += "55" * 35 * 10
-                    i = 500
+                    snd_content_str += "55" * 15 * 10
+                    snd_count  = 10
+                    i = snd_count
                     start_time = time.time()
                     timeout = 0
                     while i > 0:
                         ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-                        rprint("Send index : %d" %i)
+                        rprint("Send index : %d" %(snd_count - i))
                         i -= 1
                         #time.sleep(0.1)
-                        if not ble_conn.waitForNotifications(1):
+                        if not ble_conn.waitForNotifications(5):
                             rprint("Time out -------")
 
                     rprint("Total_time : %d" % (time.time() - start_time))
@@ -624,6 +672,80 @@ def signal_handler(signal, frame):
     except btle.BTLEException:
         traceback.print_exc()
 
+# wxWidgets object ID for the timer  
+TIMER_ID = wx.NewId()
+# number of data points  
+POINTS = 300
+
+class PlotFigure(wx.Frame):
+    """Matplotlib wxFrame with animation effect"""
+    def __init__(self):
+        wx.Frame.__init__(self, None, wx.ID_ANY, title="show acc lllll", size=(1000, 600))
+        # Matplotlib Figure  
+        self.fig = Figure((10, 6), 100)
+        # bind the Figure to the backend specific canvas  
+        self.canvas = FigureCanvas(self, wx.ID_ANY, self.fig)
+        # add a subplot  
+        self.ax = self.fig.add_subplot(111)
+
+        # limit the X and Y axes dimensions  
+        self.ax.set_ylim([-600, 700])
+        self.ax.set_xlim([0, POINTS])
+
+        self.ax.set_autoscale_on(False)
+
+        self.ax.set_xticks([])
+        # we want a tick every 10 point on Y (101 is to have 10  
+        self.ax.set_yticks(range(-600, 700, 100))
+        # disable autoscale, since we don't want the Axes to ad  
+        # draw a grid (it will be only for Y)  
+        self.ax.grid(True)
+        # generates first "empty" plots  
+        self.user = [None] * POINTS
+        self.user_1 = [None] * POINTS
+        self.user_2 = [None] * POINTS
+        self.l_user,=self.ax.plot(range(POINTS),self.user,label='x%')
+        self.l_user_1,=self.ax.plot(range(POINTS),self.user_1,label='y%')
+        self.l_user_2,=self.ax.plot(range(POINTS),self.user_2,label='z%')
+
+        # add the legend  
+        self.ax.legend(loc='upper center',
+                       ncol=4,
+                       prop=font_manager.FontProperties(size=10))
+        # force a draw on the canvas()  
+        # trick to show the grid and the legend  
+        self.canvas.draw()
+        # save the clean background - everything but the line  
+        # is drawn and saved in the pixel buffer background  
+        self.bg = self.canvas.copy_from_bbox(self.ax.bbox)
+        # bind events coming from timer with id = TIMER_ID  
+        # to the onTimer callback function  
+        wx.EVT_TIMER(self, TIMER_ID, self.onTimer)
+
+    def onTimer(self, evt):
+        """callback function for timer events"""
+        # restore the clean background, saved at the beginning  
+        self.canvas.restore_region(self.bg)
+
+        # update the data 
+        #temp =np.random.randint(10,80)
+        #self.user = self.user[1:] + [temp*300/100]
+        #self.user_1 = self.user_1[1:] + [temp*200/100]
+        global x_data
+        global y_data
+        global z_data
+        self.user = x_data
+        self.user_1 = y_data
+        self.user_2 = z_data
+        # update the plot  
+        self.l_user.set_ydata(self.user)
+        self.l_user_1.set_ydata(self.user_1)
+        self.l_user_2.set_ydata(self.user_2)
+        # just draw the "animated" objects  
+        self.ax.draw_artist(self.l_user)# It is used to efficiently update Axes data (axis ticks, labels, etc are not updated)  
+        self.ax.draw_artist(self.l_user_1)# It is used to efficiently update Axes data (axis ticks, labels, etc are not updated)  
+        self.ax.draw_artist(self.l_user_2)# It is used to efficiently update Axes data (axis ticks, labels, etc are not updated)  
+        self.canvas.blit(self.ax.bbox)
 
 def test():
     global ble_mac
@@ -631,72 +753,92 @@ def test():
     global sub_thread 
     global do_exit
     # test
-    #ble_mac = "22:88:88:88:88:03"
-    ble_mac = "22:01:00:00:03:c2"
-    ble_mac = "22:01:00:00:03:10"
-    ble_mac = "22:99:00:00:00:04"
-    ble_mac = "22:01:00:00:03:14"
+    ble_mac = "22:01:00:00:03:10" #boss
+    ble_mac = "22:01:00:00:03:31"
+    ble_mac = "22:01:00:00:03:2A"
+    ble_mac = "22:33:44:55:66:88"
+    ble_mac = "22:01:00:00:03:16"
+    ble_mac = "22:02:04:04:01:03"
+    ble_mac = "68:3e:34:fe:0a:99"
+    ble_mac = "68:3e:34:fe:0a:EF"
+    ble_mac = "22:01:00:00:03:1E"
+    ble_mac = "68:3e:34:fe:0a:74"
+    ble_mac = "68:3e:34:fe:0a:65"
+    ble_mac = "22:99:00:00:00:03"
 
     ble_connect(ble_mac)
 
-   # open device uart log
-    snd_content_str = """\x33\x31"""
-    #ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
-    #rprint("Test : listenning and open log")
-
-   # listenning
-    handle = 0x27
+    #listenning
     snd_content_str = """\x01\x00"""
-    ble_conn.writeCharacteristic((handle+1), snd_content_str)
-
     handle = 0x23
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
+    time.sleep(0.5)
+
+    handle = 0x27
+    ble_conn.writeCharacteristic((handle+1), snd_content_str)
+    time.sleep(0.5)
 
     handle = 0x2b;
     ble_conn.writeCharacteristic((handle+1), snd_content_str)
+    time.sleep(0.5)
+
+    ble_conn.setMTU(200);
+
+    handle = 0x2b;
+    snd_content_str = """\x33\x10"""
+    ble_conn.writeCharacteristic(0x1f, snd_content_str, True)
+
+    count = 0;
+    handle = 0x23;
+    snd_content_str = "2204020b010400"
+    ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+
 
     #snd_content_str = "220702FF01E0FF070000"
     #ble_conn.writeCharacteristicRaw(0x23, snd_content_str, True)
     #snd_content_str = "220702FF01F0FF070000"
     #ble_conn.writeCharacteristicRaw(0x23, snd_content_str, True)
 
-    time.sleep(1)
-    count = 0;
-
-    handle = 0x23;
-    snd_content_str = "2204020b010400"
-    ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-    time.sleep(0.2)
-
+    #snd_content_str = "220302FD1800"
+    #ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
+    #snd_content_str = "220402FD260500"
+    #ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
     if do_exit:
         count += 1
         print("send time :%d" %count)
 
-        snd_content_str = "2203020d0100"
+        snd_content_str = "2204020b010300"
         ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-        time.sleep(0.2)
+        time.sleep(1)
 
-        handle = 0x23;
         snd_content_str = "2204020b010400"
         ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-        time.sleep(0.2)
+        time.sleep(2)
 
         snd_content_str = "2203020a0500"
         ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-        time.sleep(0.2)
+        time.sleep(1)
 
         snd_content_str = "2203020d0100"
         ble_conn.writeCharacteristicRaw(handle, snd_content_str, True)
-        time.sleep(0.2)
+        time.sleep(1)
+        ble_disconnect()
+
+
+    app = wx.PySimpleApp()
+    frame = PlotFigure()
+    t = wx.Timer(frame, TIMER_ID)
+    t.Start(10)
+    frame.Show()
+    app.MainLoop()
 
 
 if __name__ == '__main__':
-    
-    rprint("Application Startt\n")
- 
+    #rprint("Application Startt\n")
     signal.signal(signal.SIGINT, signal_handler)
 
     #btle.Debugging = True
+
     test()
 
     while not do_exit:
@@ -706,7 +848,7 @@ if __name__ == '__main__':
             break
         no_notification = False
 
-    rprint("Application quit\n")
+    #rprint("Application quit\n")
 
 
 
